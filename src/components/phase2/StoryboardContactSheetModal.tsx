@@ -1,0 +1,413 @@
+import React, { useState, useRef } from 'react';
+import {
+  X,
+  Printer,
+  Download,
+  Copy,
+  Check,
+  FileText,
+  Image as ImageIcon,
+  Layers,
+  Sparkles,
+} from 'lucide-react';
+import { CinematicShot, Project } from '../../types/filmStudio';
+import { calculateAllTimecodes } from '../../services/storyboardEngine';
+
+interface StoryboardContactSheetModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  shots: CinematicShot[];
+  project: Project;
+}
+
+export const StoryboardContactSheetModal: React.FC<StoryboardContactSheetModalProps> = ({
+  isOpen,
+  onClose,
+  shots,
+  project,
+}) => {
+  const [copiedMd, setCopiedMd] = useState(false);
+  const [isRenderingCanvas, setIsRenderingCanvas] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  if (!isOpen) return null;
+
+  const timecodes = calculateAllTimecodes(shots);
+  const totalDuration = shots.reduce((acc, s) => acc + (s.duration || 8), 0);
+
+  // Print Handler
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Markdown Export Handler
+  const generateMarkdown = () => {
+    let md = `# ${project.title || 'Untitled Film'} — Master Visual Storyboard\n\n`;
+    md += `**Format:** ${project.settings.format} | **Total Runtime:** ~${totalDuration}s | **Aspect Ratio:** ${project.settings.aspectRatio}\n`;
+    md += `**Master Visual Style:** ${project.visualStyle?.name} (${project.visualStyle?.medium}, ${project.visualStyle?.realismLevel})\n`;
+    md += `**Shots Planned:** ${shots.length}\n\n`;
+    md += `---\n\n`;
+
+    shots.forEach((shot) => {
+      const tc = timecodes.get(shot.shotId);
+      md += `## Shot #${shot.order}: [${shot.shotId}] · Timecode: ${tc?.rangeDisplay || '00:00 - 00:08'} (${shot.duration}s)\n`;
+      md += `- **Purpose / Action:** ${shot.purpose || 'None'}\n`;
+      md += `- **Cinematography:** ${shot.shotSize} | ${shot.cameraAngle} | ${shot.cameraMovement} | Lens: ${shot.lensIntent || '35mm'}\n`;
+      md += `- **Characters:** ${shot.characterIds?.join(', ') || 'None'}\n`;
+      md += `- **Location:** ${shot.locationId || 'Primary'}\n`;
+      if (shot.dialogueText) md += `- **Dialogue:** ${shot.dialogueText}\n`;
+      if (shot.narrationText) md += `- **Narration / VO:** ${shot.narrationText}\n`;
+      if (shot.sfxText) md += `- **Audio / SFX:** ${shot.sfxText}\n`;
+      if (shot.firstFramePrompt) md += `- **First Frame Image Prompt:** \`${shot.firstFramePrompt}\`\n`;
+      if (shot.endFramePrompt) md += `- **End Frame Image Prompt:** \`${shot.endFramePrompt}\`\n`;
+      if (shot.continuityNotes?.length) md += `- **Continuity:** ${shot.continuityNotes.join('; ')}\n`;
+      md += `\n---\n\n`;
+    });
+
+    return md;
+  };
+
+  const handleCopyMarkdown = () => {
+    const md = generateMarkdown();
+    navigator.clipboard.writeText(md);
+    setCopiedMd(true);
+    setTimeout(() => setCopiedMd(false), 2000);
+  };
+
+  const handleDownloadJson = () => {
+    const payload = {
+      projectTitle: project.title,
+      visualStyle: project.visualStyle,
+      settings: project.settings,
+      totalDuration,
+      shots,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.title.toLowerCase().replace(/\s+/g, '-')}-storyboard.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Canvas Contact Sheet Image Generator (PNG download)
+  const handleDownloadContactSheetPng = async () => {
+    setIsRenderingCanvas(true);
+    try {
+      const cols = 3;
+      const rows = Math.ceil(shots.length / cols);
+      const cardWidth = 480;
+      const cardHeight = 360;
+      const padding = 30;
+      const headerHeight = 120;
+
+      const canvasWidth = cols * cardWidth + (cols + 1) * padding;
+      const canvasHeight = headerHeight + rows * cardHeight + (rows + 1) * padding;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Background
+      ctx.fillStyle = '#070B10';
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Header Banner
+      ctx.fillStyle = '#0E141D';
+      ctx.fillRect(0, 0, canvasWidth, headerHeight);
+
+      ctx.fillStyle = '#00AFFF';
+      ctx.font = 'bold 28px "Exo 2", sans-serif';
+      ctx.fillText(project.title || 'Visual Storyboard Contact Sheet', padding, 45);
+
+      ctx.fillStyle = '#A0AEC0';
+      ctx.font = '14px Inter, sans-serif';
+      ctx.fillText(
+        `Master Style: ${project.visualStyle?.name || 'Cinematic'} | Total Runtime: ${totalDuration}s | Total Shots: ${shots.length} | Aspect Ratio: ${project.settings.aspectRatio}`,
+        padding,
+        75
+      );
+
+      ctx.fillStyle = '#55606E';
+      ctx.font = '11px monospace';
+      ctx.fillText(`Generated by XEMACS7 AI FILM STUDIO 3.0 · ${new Date().toLocaleDateString()}`, padding, 100);
+
+      // Render cards
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i];
+        const tc = timecodes.get(shot.shotId);
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+
+        const x = padding + col * (cardWidth + padding);
+        const y = headerHeight + padding + row * (cardHeight + padding);
+
+        // Card Card Background
+        ctx.fillStyle = '#0B1017';
+        ctx.fillRect(x, y, cardWidth, cardHeight);
+        ctx.strokeStyle = '#1C2735';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cardWidth, cardHeight);
+
+        // Top info bar
+        ctx.fillStyle = '#141F2E';
+        ctx.fillRect(x, y, cardWidth, 34);
+
+        ctx.fillStyle = '#00AFFF';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(`#${shot.order} ${shot.shotId}`, x + 10, y + 22);
+
+        ctx.fillStyle = '#34D399';
+        ctx.font = '11px monospace';
+        ctx.fillText(`TC: ${tc?.rangeDisplay || '00:00-00:08'} (${shot.duration || 8}s)`, x + 150, y + 22);
+
+        // Image or Placeholder
+        const imgX = x + 10;
+        const imgY = y + 42;
+        const imgW = cardWidth - 20;
+        const imgH = 190;
+
+        ctx.fillStyle = '#070A0F';
+        ctx.fillRect(imgX, imgY, imgW, imgH);
+
+        if (shot.firstFrameImageData) {
+          try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+              const el = new Image();
+              el.crossOrigin = 'anonymous';
+              el.onload = () => resolve(el);
+              el.onerror = () => reject();
+              el.src = shot.firstFrameImageData!;
+            });
+            ctx.drawImage(img, imgX, imgY, imgW, imgH);
+          } catch {
+            ctx.fillStyle = '#334155';
+            ctx.fillText('Image Render Error', imgX + 20, imgY + 80);
+          }
+        } else {
+          ctx.fillStyle = '#243346';
+          ctx.font = '12px Inter, sans-serif';
+          ctx.fillText('[Storyboard Drawing / Wireframe Frame]', imgX + 80, imgY + 95);
+        }
+
+        // Details below image
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        const purposeText = shot.purpose || 'Dramatic progression';
+        const truncated = purposeText.length > 55 ? purposeText.substring(0, 52) + '...' : purposeText;
+        ctx.fillText(truncated, x + 10, y + 252);
+
+        ctx.fillStyle = '#A0AEC0';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.fillText(
+          `${(shot.shotSize || 'MEDIUM').replace(/_/g, ' ')} · ${(shot.cameraAngle || 'EYE_LEVEL').replace(/_/g, ' ')} · ${(shot.cameraMovement || 'STATIC').replace(/_/g, ' ')}`,
+          x + 10,
+          y + 274
+        );
+
+        if (shot.dialogueText) {
+          ctx.fillStyle = '#00AFFF';
+          ctx.font = 'italic 11px Inter, sans-serif';
+          const dlg = shot.dialogueText.length > 55 ? shot.dialogueText.substring(0, 52) + '...' : shot.dialogueText;
+          ctx.fillText(`“${dlg}”`, x + 10, y + 296);
+        }
+
+        if (shot.continuityNotes?.length) {
+          ctx.fillStyle = '#657283';
+          ctx.font = '10px monospace';
+          ctx.fillText(`Anchor: ${shot.continuityNotes[0].substring(0, 45)}`, x + 10, y + 316);
+        }
+      }
+
+      // Download
+      const link = document.createElement('a');
+      link.download = `${project.title.toLowerCase().replace(/\s+/g, '-')}-contact-sheet.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Contact sheet generation failed:', err);
+    } finally {
+      setIsRenderingCanvas(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 md:p-6 overflow-y-auto">
+      <div className="bg-[#0B1017] border border-[#1C2735] rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="p-4 md:p-5 bg-[#0E141D] border-b border-[#1C2735] flex items-center justify-between">
+          <div className="space-y-1">
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00AFFF]/15 text-[#00AFFF] uppercase tracking-wider">
+              Production Export
+            </span>
+            <h3 className="text-lg font-bold font-['Exo_2'] text-white">
+              Export Storyboard & Contact Sheet
+            </h3>
+            <p className="text-xs text-[#79838E]">
+              Generate printable production PDF sheets, high-resolution contact sheet image, or production deck
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-[#1C2735] text-[#79838E] hover:text-white rounded-lg cursor-pointer transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Action Buttons Toolbar */}
+        <div className="p-4 bg-[#090D13] border-b border-[#1C2735] flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="px-4 py-2 rounded-lg bg-[#00AFFF] hover:bg-[#0096DC] text-white text-xs font-bold flex items-center space-x-2 cursor-pointer shadow-md"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print / Save PDF Storyboard</span>
+            </button>
+
+            <button
+              onClick={handleDownloadContactSheetPng}
+              disabled={isRenderingCanvas}
+              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center space-x-2 cursor-pointer shadow-md disabled:opacity-50"
+            >
+              <ImageIcon className={`w-4 h-4 ${isRenderingCanvas ? 'animate-spin' : ''}`} />
+              <span>{isRenderingCanvas ? 'Rendering Image...' : 'Download Contact Sheet PNG'}</span>
+            </button>
+
+            <button
+              onClick={handleCopyMarkdown}
+              className="px-3.5 py-2 rounded-lg bg-[#141C28] hover:bg-[#1E2938] text-[#D7DCE2] border border-[#243346] text-xs font-semibold flex items-center space-x-1.5 cursor-pointer"
+            >
+              {copiedMd ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedMd ? 'Copied Markdown' : 'Copy Markdown Deck'}</span>
+            </button>
+
+            <button
+              onClick={handleDownloadJson}
+              className="px-3.5 py-2 rounded-lg bg-[#141C28] hover:bg-[#1E2938] text-[#D7DCE2] border border-[#243346] text-xs font-semibold flex items-center space-x-1.5 cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>Export JSON</span>
+            </button>
+          </div>
+
+          <div className="text-xs text-[#79838E]">
+            Total Shots: <strong className="text-white">{shots.length}</strong> | Total Runtime:{' '}
+            <strong className="text-white">{totalDuration}s</strong>
+          </div>
+        </div>
+
+        {/* Printable Storyboard Preview Container */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-[#070A0F]" id="printable-storyboard">
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              #printable-storyboard, #printable-storyboard * { visibility: visible; }
+              #printable-storyboard {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                background: white !important;
+                color: black !important;
+                padding: 10mm;
+              }
+              .print-card {
+                page-break-inside: avoid;
+                border: 1px solid #ccc !important;
+                background: #fafafa !important;
+                color: black !important;
+                margin-bottom: 15px;
+              }
+              .print-text { color: black !important; }
+            }
+          `}</style>
+
+          {/* Document Header */}
+          <div className="border-b border-[#1C2735] pb-4">
+            <h1 className="text-2xl font-bold font-['Exo_2'] text-white">
+              {project.title || 'Visual Storyboard Master Deck'}
+            </h1>
+            <p className="text-xs text-[#8A96A6] mt-1">
+              Master Visual Style: <strong className="text-white">{project.visualStyle?.name}</strong> (
+              {project.visualStyle?.medium}) · Format: {project.settings.format} · Target Runtime:{' '}
+              {project.settings.targetRuntimeSeconds}s
+            </p>
+          </div>
+
+          {/* Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {shots.map((shot) => {
+              const tc = timecodes.get(shot.shotId);
+              return (
+                <div
+                  key={shot.shotId}
+                  className="bg-[#0B1017] border border-[#1C2735] rounded-xl p-4 space-y-3 print-card"
+                >
+                  <div className="flex items-center justify-between border-b border-[#1C2735] pb-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono font-bold text-xs text-[#00AFFF]">
+                        #{shot.order} {shot.shotId}
+                      </span>
+                      <span className="text-[10px] text-[#79838E]">({shot.duration || 8}s)</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400">
+                      TC: {tc?.rangeDisplay || '00:00 – 00:08'}
+                    </span>
+                  </div>
+
+                  {/* Thumbnail */}
+                  <div className="aspect-video bg-[#070A0F] rounded-lg overflow-hidden border border-[#1C2735] flex items-center justify-center">
+                    {shot.firstFrameImageData ? (
+                      <img
+                        src={shot.firstFrameImageData}
+                        alt={shot.shotId}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="text-center text-[#55606E] text-xs">
+                        [Storyboard Frame / Image Pending]
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="space-y-1.5 text-xs">
+                    <div>
+                      <strong className="text-white">Action:</strong>{' '}
+                      <span className="text-[#D7DCE2]">{shot.purpose || 'None specified'}</span>
+                    </div>
+
+                    <div className="text-[11px] text-[#A0AEC0]">
+                      <strong>Camera:</strong> {(shot.shotSize || 'MEDIUM').replace(/_/g, ' ')} ·{' '}
+                      {(shot.cameraAngle || 'EYE_LEVEL').replace(/_/g, ' ')} ·{' '}
+                      {(shot.cameraMovement || 'STATIC').replace(/_/g, ' ')}
+                    </div>
+
+                    {shot.dialogueText && (
+                      <div className="text-[11px] text-[#00AFFF] italic">
+                        <strong>Dialogue:</strong> {shot.dialogueText}
+                      </div>
+                    )}
+
+                    {shot.firstFramePrompt && (
+                      <div className="text-[10px] text-[#79838E] font-mono line-clamp-2">
+                        <strong>Prompt:</strong> {shot.firstFramePrompt}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

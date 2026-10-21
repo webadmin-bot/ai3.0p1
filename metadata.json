@@ -1,0 +1,6 @@
+{
+  "name": "XEMACS7 AI Film Studio 2.0",
+  "description": "From Idea to Cinematic Reality. Professional film pre-production studio featuring Stage 1: Story & Canon Studio, comprehensive master visual style presets, deep narrative architecture, and continuity auditing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
